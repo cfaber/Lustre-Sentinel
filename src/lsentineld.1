@@ -1,0 +1,127 @@
+.\" Man page for lsentineld
+.\" Author: Colin Faber <cfaber@thelustrecollective.com>
+.\" Date: December 28, 2025
+
+.TH LSENTINELD 8 "December 28, 2025" "Version 1.0" "System Administration Commands"
+.SH NAME
+lsentineld \- Lustre Sentinel daemon for monitoring filesystem changelogs
+.SH SYNOPSIS
+.B lsentineld
+[\fIoptions\fR] \fIfsname-MDTnumber\fR
+.SH DESCRIPTION
+The \fBlsentineld\fR daemon monitors Lustre filesystem changelogs for file operations and stores the history in DuckDB databases. It registers as a changelog consumer to receive events such as file creations, modifications, renames, and deletions. The daemon supports database rotation for long-term logging, caching of FID-to-path mappings, and various output configurations via command-line options or configuration files.
+
+The program requires root privileges to access Lustre APIs and changelogs. It can run in daemon mode for continuous monitoring or as a one-shot process. Databases are created or appended to based on the provided template, and changelog records are processed incrementally from the last known record number.
+.PP
+By default, if no configuration file is specified, it attempts to load settings from \fB/usr/share/sentinel/default.conf\fR.
+.SH OPTIONS
+.TP
+.BR -v [\fIlevel\fR] ", " --verbose [=\fIlevel\fR]"
+Enable verbose output. If a level (1-10) is provided, set the verbosity accordingly; otherwise, default to level 1.
+.TP
+.BR -h ", " --help
+Display usage information and exit.
+.TP
+.BR -d ", " --daemon
+Run in daemon mode for continuous changelog monitoring with adaptive polling intervals (1-10 seconds based on recent activity).
+.TP
+.BR -r ", " --register-consumer
+Register as a changelog consumer without starting the monitoring loop. Useful for setup.
+.TP
+.BR -C " \fIname\fR" ", " --consumer " \fIname\fR"
+Specify the consumer name for changelog registration. Defaults to "sentinel" if not provided.
+.TP
+.BR -m " \fImask\fR" ", " --audit-mask " \fImask\fR"
+Set the changelog audit mask: "full" or "partial". "full" includes all operations; "partial" includes a subset (e.g., excluding some advanced events). Defaults to "partial" if registering.
+.TP
+.BR -D " \fItemplate\fR" ", " --db " \fItemplate\fR"
+Specify the database file template (e.g., "/var/log/sentinel_%02d.db"). Supports rotation with placeholders like %02d for sequence numbers.
+.TP
+.BR -o " \fIduration\fR" ", " --rotation " \fIduration\fR"
+Enable database rotation after the specified duration (e.g., "1h", "30m", "3600s", "1d"). Duration formats: seconds (s), minutes (m), hours (h), days (d).
+.TP
+.BR -R " \fIperiod\fR" ", " --report " \fIperiod\fR"
+Generate a report for the specified period (e.g., "daily", "weekly"). Requires --db.
+.TP
+.BR -c " \fIfile\fR" ", " --config " \fIfile\fR"
+Load configuration from the specified file. Overrides default config if present.
+.TP
+.BR -n ", " --dry-run
+Run in dry-run mode: register consumer and process changelogs without writing to disk (uses in-memory database). Useful for testing.
+.TP
+.BR -N ", " --noclear
+Do not clear the changelog after processing records. By default, changelogs are cleared to prevent reprocessing.
+.TP
+.I fsname-MDTnumber
+The required positional argument: Lustre filesystem name followed by MDT number (e.g., "lustre-MDT0000").
+.SH CONFIGURATION
+Configuration files are in key=value format. Supported keys:
+- fsname: Filesystem name (e.g., "lustre-MDT0000")
+- daemon: 1 to enable daemon mode, 0 to disable (default: 0)
+- consumer: Changelog consumer name (default: "sentinel")
+- audit_mask: Audit mask ("full" or "partial", default: "partial")
+- db: Database template path
+- rotation: Rotation duration (e.g., "1h")
+- report: Report period (e.g., "daily")
+- verbose: Verbosity level (1-10)
+- dry_run: 1 to enable dry-run mode, 0 to disable (default: 0)
+- noclear: 1 to disable clearing changelogs, 0 to enable (default: 0)
+
+If no custom config is provided, \fB/usr/share/sentinel/default.conf\fR is loaded if it exists.
+.SH EXAMPLES
+.PP
+Register as a changelog consumer:
+.RS
+.B lsentineld -r -C myconsumer -m full lustre-MDT0000
+.RE
+.PP
+Run in daemon mode with database rotation every hour:
+.RS
+.B lsentineld -d -D /var/log/sentinel_%02d.db -o 1h lustre-MDT0000
+.RE
+.PP
+One-shot processing with custom config:
+.RS
+.B lsentineld -c /etc/sentinel.conf lustre-MDT0000
+.RE
+.PP
+Dry-run test:
+.RS
+.B lsentineld -n -v 3 lustre-MDT0000
+.RE
+.PP
+Generate a daily report:
+.RS
+.B lsentineld -D /var/log/sentinel.db -R daily
+.RE
+.SH NOTES
+- The program must be run as root unless in dry-run mode.
+- Database files are opened read-write; ensure appropriate permissions on the target directory.
+- Changelog masks determine which events are captured: "full" for comprehensive logging, "partial" for essential operations only.
+- FID-to-path resolution uses Lustre APIs (\fBllapi_fid2path\fR) with caching (size: 1000 entries, timeout: 300s) and fallbacks to database lookups or parent FID + name construction.
+- UTF-8 validation is performed on paths; invalid strings are replaced with "unknown".
+- In rotation mode, new databases are generated using the template's sequence placeholder (e.g., %02d). Existing latest database is reused if within the rotation duration.
+- In daemon mode, polling interval adapts based on recent activity: 1 second if >100 records processed, otherwise 10 seconds.
+- Signal handling (SIGINT, SIGTERM) ensures graceful shutdown with database closure.
+- Supports Lustre versions >= 2.16 for named consumer registration.
+- Database schema includes tables: changelog (raw records), metadata (e.g., last_rec), files (file states with paths, deletion status, etc.).
+- Special handling for rename operations (pairs CL_RENAME with CL_EXT).
+.SH EXIT STATUS
+.TP
+.B 0
+Successful execution or registration.
+.TP
+.B 1
+Error (e.g., invalid arguments, missing fsname, database open failure, or changelog processing error).
+.SH AUTHOR
+Colin Faber <cfaber@thelustrecollective.com>
+.SH LICENSE
+Lustre Sentinel is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+Lustre Sentinel is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with Lustre Sentinel. If not, see <https://www.gnu.org/licenses/>.
+.SH SEE ALSO
+.BR lctl (8),
+.BR duckdb (1),
+.BR sentinel (1)
