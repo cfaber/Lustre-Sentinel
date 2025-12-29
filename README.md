@@ -129,8 +129,8 @@ For testing, see [TESTING.md](docs/TESTING.md).
 ## License
 GNU General Public License v3 or later (see LICENSE file for details).
 
-## AI-Generated Code Notice
 
+## AI-Generated Code Notice
 This project incorporates code that was primarily designed and generated with the assistance of Grok, an AI model built by xAI. While Grok aimed to provide efficient and functional solutions based on the provided specifications, AI-generated code can sometimes result in what is colloquially known as "AI slop"—overly generic, inefficient, or unoptimized outputs that may lack the nuance of human-crafted code.
 
 Key points to note:
